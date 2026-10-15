@@ -1,50 +1,57 @@
-import yaml
+"""Read two CSV columns and report their Pearson correlation."""
+
+import argparse
 import csv
-import math
+from pathlib import Path
 
-CONFIG_PATH = "config.yaml"
+import yaml
 
-with open(CONFIG_PATH) as f:
-    cfg = yaml.safe_load(f)
 
-csv_path = cfg["input_csv"]
-col_x = cfg["columns"]["x"]
-col_y = cfg["columns"]["y"]
+def load_config(config_path: Path):
+    """Return the CSV path and selected column names from a YAML file."""
+    with config_path.open(encoding="utf-8") as stream:
+        config = yaml.safe_load(stream)
+    csv_path = Path(config["input_csv"])
+    if not csv_path.is_absolute():
+        csv_path = config_path.parent / csv_path
+    return csv_path, config["columns"]["x"], config["columns"]["y"]
 
-xs = []
-ys = []
 
-with open(csv_path) as f:
-    reader = csv.DictReader(f)
-    for row in reader:
-        xs.append(float(row[col_x]))
-        ys.append(float(row[col_y]))
+def read_columns(csv_path: Path, column_x: str, column_y: str):
+    """Collect the selected columns as pairs of floating point values."""
+    xs, ys = [], []
+    with csv_path.open(newline="", encoding="utf-8-sig") as stream:
+        for row in csv.DictReader(stream):
+            xs.append(float(row[column_x]))
+            ys.append(float(row[column_y]))
+    return xs, ys
 
-n = len(xs)
 
-sum_x = 0.0
-sum_y = 0.0
-for i in range(n):
-    sum_x = sum_x + xs[i]
-    sum_y = sum_y + ys[i]
+def calculate_correlation(xs, ys):
+    """Return the count, both means, and the correlation coefficient."""
+    n = len(xs)
+    mean_x = sum(xs) / n
+    mean_y = sum(ys) / n
+    dx = sum((x - mean_x) ** 2 for x in xs)
+    dy = sum((y - mean_y) ** 2 for y in ys)
+    product = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+    return n, mean_x, mean_y, product / (dx * dy)
 
-mean_x = sum_x / n
-mean_y = sum_y / n
 
-dx = 0.0
-dy = 0.0
-prod = 0.0
-for i in range(n):
-    a = xs[i] - mean_x
-    b = ys[i] - mean_y
-    dx = dx + a * a
-    dy = dy + b * b
-    prod = prod + a * b
+def main(argv=None):
+    """Run the command line tool."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", type=Path, required=True, help="YAML configuration")
+    args = parser.parse_args(argv)
+    csv_path, column_x, column_y = load_config(args.config)
+    n, mean_x, mean_y, r = calculate_correlation(
+        *read_columns(csv_path, column_x, column_y)
+    )
+    print(f"n = {n}")
+    print(f"mean_x = {mean_x}")
+    print(f"mean_y = {mean_y}")
+    print(f"r = {r}")
 
-denom = dx * dy
-r = prod / denom
 
-print("n =", n)
-print("mean_x =", mean_x)
-print("mean_y =", mean_y)
-print("r =", r)
+if __name__ == "__main__":
+    main()
