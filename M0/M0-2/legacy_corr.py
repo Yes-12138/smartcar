@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+import math
 from pathlib import Path
 
 import yaml
@@ -30,12 +31,13 @@ def read_columns(csv_path: Path, column_x: str, column_y: str):
 def calculate_correlation(xs, ys):
     """Return the count, both means, and the correlation coefficient."""
     n = len(xs)
-    mean_x = sum(xs) / n
-    mean_y = sum(ys) / n
-    dx = sum((x - mean_x) ** 2 for x in xs)
-    dy = sum((y - mean_y) ** 2 for y in ys)
-    product = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
-    return n, mean_x, mean_y, product / (dx * dy)
+    mean_x = math.fsum(xs) / n
+    mean_y = math.fsum(ys) / n
+    centered = [(x - mean_x, y - mean_y) for x, y in zip(xs, ys)]
+    dx = math.fsum(x * x for x, _ in centered)
+    dy = math.fsum(y * y for _, y in centered)
+    product = math.fsum(x * y for x, y in centered)
+    return n, mean_x, mean_y, product / (math.sqrt(dx) * math.sqrt(dy))
 
 
 def main(argv=None):
