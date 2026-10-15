@@ -1,70 +1,94 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-sensor_analyzer.py  —— 上一届学长留下的"能用"的脚本
+"""Read sensor values, remove 2-standard-deviation outliers, and save a CSV."""
 
-注释（学长原话）：
-    "处理一下传感器数据就能用"
-
-原本意图：
-    1. 读取 sensor_data.csv（列：time, value）
-    2. 计算 value 的平均值、标准差
-    3. 剔除离群值（|value - mean| > 2 * std）
-    4. 把清洗后的数据保存为 cleaned_data.csv
-    5. 打印一份统计摘要
-
-现状：跑不通 / 跑出来数不对。就交给你了。
-"""
-
+import argparse
 import csv
 import math
+import sys
+from pathlib import Path
 
-INPUT_FILE = "sensor_data.csv"
-OUTPUT_FILE = "cleaned_data.csv"
 
-data = []
-times = []
-cleaned = []
+def read_rows(path):
+    """Keep the original CSV text and a numeric copy of each value."""
+    rows = []
+    with path.open("r", newline="", encoding="utf-8-sig") as file:
+        reader = csv.DictReader(file)
+        if not reader.fieldnames:
+            raise ValueError("CSV 文件为空")
+        if "time" not in reader.fieldnames or "value" not in reader.fieldnames:
+            raise ValueError("CSV 表头必须包含 time 和 value 两列")
+        if len(reader.fieldnames) != len(set(reader.fieldnames)):
+            raise ValueError("CSV 表头不能有重复列名")
 
-print("=== 传感器数据分析 ===")
+        for line_number, row in enumerate(reader, start=2):
+            if None in row:
+                raise ValueError(f"第 {line_number} 行的字段数多于表头")
+            time_text = row["time"]
+            value_text = row["value"]
+            if not time_text or not time_text.strip():
+                raise ValueError(f"第 {line_number} 行的 time 为空")
+            if not value_text or not value_text.strip():
+                raise ValueError(f"第 {line_number} 行的 value 为空")
+            try:
+                value = float(value_text)
+            except ValueError as exc:
+                raise ValueError(f"第 {line_number} 行的 value 不是数字：{value_text!r}") from exc
+            if not math.isfinite(value):
+                raise ValueError(f"第 {line_number} 行的 value 必须是有限数字")
+            rows.append((time_text, value_text, value))
 
-# --- 读取数据 ---
-reader = csv.DictReader(open(INPUT_FILE, "r"))
+    if not rows:
+        raise ValueError("CSV 没有数据行")
+    return rows
 
-for row in reader:
-    t = row["time"]
-    v = float(row["value"])
-    times.append(t)
-    data.append(v)
 
-print("共读取 %d 条数据" % len(data))
+def calculate_stats(rows):
+    """Use the original values to calculate the population mean and std."""
+    mean = math.fsum(row[2] for row in rows) / len(rows)
+    variance = math.fsum((row[2] - mean) ** 2 for row in rows) / len(rows)
+    return mean, math.sqrt(variance)
 
-# --- 计算平均值 ---
-total = 0
-for v in data:
-    total += v
-mean = total / len(data)
 
-# --- 计算标准差 ---
-acc = 0
-for v in data:
-    acc += (v - mean) ** 2
-std = math.sqrt(acc / len(data))
+def clean_rows(rows, mean, std):
+    """Keep values within two standard deviations, including the boundary."""
+    return [row for row in rows if abs(row[2] - mean) <= 2 * std]
 
-# --- 剔除离群值 ---
-for t, v in zip(times, data):
-    if abs(v - mean) <= 2 * std:
-        cleaned.append((t, v))
 
-# --- 输出清洗后的数据 ---
-output_path = OUTPUT_FILE
-f = open(output_path, "w")
-writer = csv.writer(f)
-writer.writerow(["time", "value"])
-for t, v in cleaned:
-    writer.writerow([t, v])
+def write_rows(path, rows):
+    """Save the original time and value text for rows that remain."""
+    with path.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["time", "value"])
+        for time_text, value_text, _ in rows:
+            writer.writerow([time_text, value_text])
 
-print("均值 mean = %.4f" % mean)
-print("标准差 std = %.4f" % std)
-print("清洗后剩余 %d 条" % len(cleaned))
-print("已保存到 %s" % output_path)
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input", type=Path, default=Path("sensor_data.csv"))
+    parser.add_argument("--output", type=Path, default=Path("cleaned_data.csv"))
+    args = parser.parse_args(argv)
+
+    try:
+        rows = read_rows(args.input)
+        mean, std = calculate_stats(rows)
+        cleaned = clean_rows(rows, mean, std)
+        write_rows(args.output, cleaned)
+    except FileNotFoundError as exc:
+        print(f"错误：文件不存在：{exc.filename}", file=sys.stderr)
+        return 1
+    except (OSError, UnicodeError, csv.Error, ValueError, OverflowError) as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 1
+
+    print("=== 传感器数据分析 ===")
+    print(f"共读取 {len(rows)} 条数据")
+    print(f"均值 mean = {mean}")
+    print(f"标准差 std = {std}")
+    print(f"清洗后剩余 {len(cleaned)} 条")
+    print(f"已保存到 {args.output}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
