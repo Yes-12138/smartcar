@@ -38,4 +38,4 @@ python3 -m unittest discover -s tests -v
 
 这次用 Codex 辅助排查、修改脚本、写测试和整理问题报告；程序和测试已在 Ubuntu VM 上跑过。我还没有完成自己的逐行复核，答辩前需要自己再读代码，并能解释为什么标准差要平方后开方、为什么遍历时不能删列表元素。
 
-原始脚本和样例来自 [22SmartCar M0-3](https://github.com/Blake-John/22SmartCar/tree/main/round1/M0/M0-3)，原仓库为 Apache-2.0 许可证；许可证副本在 `../M0-2/LICENSE.upstream`。
+
