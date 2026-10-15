@@ -5,6 +5,9 @@ from collections import deque
 import json
 import math
 from pathlib import Path
+import random
+import sys
+import time
 
 import yaml
 
@@ -111,3 +114,107 @@ def topological_order(tasks):
     if len(order) != len(tasks):
         raise ValueError("依赖关系存在环，无法安排任务顺序")
     return order
+
+
+COLORS = {
+    "SUCCESS": "\033[32m",
+    "FAILED": "\033[31m",
+    "RETRY": "\033[33m",
+    "SKIPPED": "\033[34m",
+    "TIMEOUT": "\033[31m",
+}
+
+
+def show_status(name, status, detail=""):
+    """Print status immediately, with color only in an interactive terminal."""
+    message = f"{name}: {status}"
+    if detail:
+        message += f" ({detail})"
+    if sys.stdout.isatty():
+        message = f"{COLORS[status]}{message}\033[0m"
+    print(message, flush=True)
+
+
+def run_scheduler(tasks, timeout, seed=None, sleep_fn=None, clock=None, timestamp=None):
+    """Run tasks once dependencies succeed; allow two retries per task."""
+    sleep_fn = sleep_fn or time.sleep
+    clock = clock or time.monotonic
+    timestamp = timestamp or time.time
+    rng = random.Random(seed)
+    tasks_by_name = {task["name"]: task for task in tasks}
+    order = topological_order(tasks)
+    records = {
+        task["name"]: {
+            "name": task["name"],
+            "status": "PENDING",
+            "attempts": 0,
+            "duration": 0.0,
+            "started_at": None,
+            "ended_at": None,
+        }
+        for task in tasks
+    }
+    start = clock()
+    deadline = None if timeout is None else start + timeout
+    timed_out = False
+
+    for name in order:
+        task = tasks_by_name[name]
+        record = records[name]
+        if deadline is not None and clock() >= deadline:
+            timed_out = True
+            break
+        if any(records[dependency]["status"] != "SUCCESS" for dependency in task["dependencies"]):
+            record["status"] = "SKIPPED"
+            show_status(name, "SKIPPED", "前置任务未成功")
+            continue
+
+        for attempt in range(1, 4):
+            remaining = None if deadline is None else deadline - clock()
+            if remaining is not None and remaining <= 0:
+                record["status"] = "TIMEOUT"
+                timed_out = True
+                show_status(name, "TIMEOUT")
+                break
+
+            record["attempts"] = attempt
+            if record["started_at"] is None:
+                record["started_at"] = timestamp()
+            print(f"开始 {name}：第 {attempt} 次尝试", flush=True)
+            attempt_start = clock()
+            sleep_seconds = task["duration"] if remaining is None else min(task["duration"], remaining)
+            sleep_fn(sleep_seconds)
+            record["duration"] += max(0.0, clock() - attempt_start)
+            record["ended_at"] = timestamp()
+
+            if deadline is not None and clock() >= deadline:
+                record["status"] = "TIMEOUT"
+                timed_out = True
+                show_status(name, "TIMEOUT", "已到总时限")
+                break
+            if rng.random() < task["success_rate"]:
+                record["status"] = "SUCCESS"
+                show_status(name, "SUCCESS", f"尝试 {attempt} 次")
+                break
+            if attempt < 3:
+                show_status(name, "RETRY", f"第 {attempt} 次失败")
+            else:
+                record["status"] = "FAILED"
+                show_status(name, "FAILED", "已尝试 3 次")
+
+        if timed_out:
+            break
+
+    if timed_out:
+        for record in records.values():
+            if record["status"] == "PENDING":
+                record["status"] = "TIMEOUT"
+                show_status(record["name"], "TIMEOUT", "未开始")
+
+    for record in records.values():
+        record["duration"] = round(record["duration"], 6)
+    return {
+        "timeout": timed_out,
+        "total_duration": round(clock() - start, 6),
+        "tasks": list(records.values()),
+    }
