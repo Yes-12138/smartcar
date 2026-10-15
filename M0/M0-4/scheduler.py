@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run simulated tasks after their dependencies finish."""
 
+import argparse
 from collections import deque
 import json
 import math
@@ -218,3 +219,48 @@ def run_scheduler(tasks, timeout, seed=None, sleep_fn=None, clock=None, timestam
         "total_duration": round(clock() - start, 6),
         "tasks": list(records.values()),
     }
+
+
+def write_report(path, report):
+    """Write JSON by default, or YAML when the file name ends in .yaml/.yml."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as file:
+        if path.suffix.lower() in (".yaml", ".yml"):
+            yaml.safe_dump(report, file, allow_unicode=True, sort_keys=False)
+        else:
+            json.dump(report, file, ensure_ascii=False, indent=2)
+            file.write("\n")
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", required=True, type=Path, help="YAML or JSON task file")
+    parser.add_argument("--timeout", type=float, help="override the global limit in seconds")
+    parser.add_argument("--report", type=Path, default=Path("report.json"))
+    parser.add_argument("--seed", type=int, help="repeat the same random outcome")
+    args = parser.parse_args(argv)
+
+    try:
+        tasks, config_timeout = read_config(args.config)
+        timeout = config_timeout if args.timeout is None else finite_number(
+            args.timeout, "--timeout", minimum=0
+        )
+        report = run_scheduler(tasks, timeout, seed=args.seed)
+        write_report(args.report, report)
+    except FileNotFoundError as exc:
+        print(f"错误：文件不存在：{exc.filename}", file=sys.stderr)
+        return 1
+    except (OSError, UnicodeError, ValueError, yaml.YAMLError, OverflowError) as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 1
+
+    print(f"总耗时：{report['total_duration']} 秒")
+    print(f"报告：{args.report}")
+    if report["timeout"]:
+        print("TIMEOUT：任务已因总时限终止")
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

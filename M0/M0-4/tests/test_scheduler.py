@@ -1,6 +1,9 @@
 """Tests for configuration and dependency ordering."""
 
 import sys
+import json
+import subprocess
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -111,6 +114,74 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(first["tasks"][0]["attempts"], 3)
         self.assertEqual(first["tasks"][0]["status"], second["tasks"][0]["status"])
         self.assertEqual(first["tasks"][0]["attempts"], second["tasks"][0]["attempts"])
+
+
+class CommandLineTests(unittest.TestCase):
+    def test_json_cli_writes_complete_report(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / "tests") as directory:
+            folder = Path(directory)
+            config = folder / "tasks.json"
+            report_path = folder / "report.json"
+            config.write_text(json.dumps({"tasks": [
+                {"name": "Init", "duration": 0, "success_rate": 1, "dependencies": []},
+                {"name": "Next", "duration": 0, "success_rate": 1, "dependencies": ["Init"]},
+            ]}), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scheduler.py"), "--config", str(config),
+                 "--report", str(report_path), "--seed", "42"],
+                cwd=ROOT.parent,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertFalse(report["timeout"])
+            self.assertEqual([item["status"] for item in report["tasks"]], ["SUCCESS", "SUCCESS"])
+            for item in report["tasks"]:
+                self.assertEqual(item["attempts"], 1)
+                self.assertIsNotNone(item["started_at"])
+                self.assertIsNotNone(item["ended_at"])
+                self.assertIn("duration", item)
+
+    def test_override_timeout_marks_every_task(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / "tests") as directory:
+            folder = Path(directory)
+            config = folder / "tasks.json"
+            report_path = folder / "report.json"
+            config.write_text(json.dumps({"timeout": 10, "tasks": [
+                {"name": "A", "duration": 0, "success_rate": 1, "dependencies": []},
+                {"name": "B", "duration": 0, "success_rate": 1, "dependencies": ["A"]},
+            ]}), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scheduler.py"), "--config", str(config),
+                 "--timeout", "0", "--report", str(report_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 2)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertTrue(report["timeout"])
+            self.assertEqual([item["status"] for item in report["tasks"]], ["TIMEOUT", "TIMEOUT"])
+            self.assertEqual([item["attempts"] for item in report["tasks"]], [0, 0])
+
+    def test_invalid_cycle_is_readable_without_traceback(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / "tests") as directory:
+            folder = Path(directory)
+            config = folder / "tasks.json"
+            config.write_text(json.dumps({"tasks": [
+                {"name": "A", "duration": 0, "success_rate": 1, "dependencies": ["A"]},
+            ]}), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scheduler.py"), "--config", str(config)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("环", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
 
 
 if __name__ == "__main__":
