@@ -1,0 +1,41 @@
+# M0-3：排查传感器数据脚本
+
+原脚本不是只有一个错误。第一次运行停在 `row["Value"]`；改掉以后又停在 `/out/cleaned_data.csv`。再往下看，程序虽然能跑完，但标准差接近 0，输出文件也只有表头。所以这题是按“先排报错，再核对结果”的顺序修的。下面的行号指题目给的原始 `sensor_analyzer.py`。
+
+| 位置 | 看到的现象 | 原因 | 修改 |
+| --- | --- | --- | --- |
+| 第 37 行 `row["Value"]` | `KeyError: 'Value'` | CSV 表头是小写 `value`，列名区分大小写 | 读取 `row["value"]` |
+| 第 61～62 行 `output_path` | `FileNotFoundError: '/out/cleaned_data.csv'` | `os.path.join("/", ...)` 从根目录拼路径，`/out` 并不存在 | 默认输出到当前工作目录，增加 `--output` |
+| 第 52～53 行 `acc` / `std` | 样例标准差显示为 `-0.0000` | 离差直接相加几乎抵消，不能当作方差 | 离差平方求平均后开方 |
+| 第 57 行 `if v > ...` | 只能处理偏大的值，漏掉 `-21.3` | 离群值看的是离均值的距离 | 使用 `abs(v - mean) > 2 * std` 判断 |
+| 第 58 行 `data.remove(v)` | 连续离群值可能被漏掉 | 遍历列表时删元素会让后面的元素前移 | 不改原列表，另建保留行列表 |
+| 第 27 行 `cleaned = []` | 输出一直只有表头 | `cleaned` 从未加入数据 | 把符合条件的行放进去 |
+| 第 36、65～66 行 `time` / `writer.writerow` | 输出没有完整的 `time,value` | 原脚本只写一个值，时间和值失去配对 | 一直保留同一行的时间和值，写出两列 |
+| 第 33、46、62 行读写与空数据 | 缺文件、空文件会直接 traceback，文件也没可靠关闭 | 没检查输入，也没用 `with` 管理文件 | 加输入检查、可读错误和 `with`，失败时非零退出 |
+
+## 运行
+
+在 `M0/M0-3` 目录执行：
+
+```bash
+python3 sensor_analyzer.py
+python3 sensor_analyzer.py --input sensor_data.csv --output cleaned_data.csv
+```
+
+第一个命令默认从**当前目录**读 `sensor_data.csv`，并在当前目录写 `cleaned_data.csv`。第二个命令可以换成其他输入、输出路径。CSV 第一行必须有 `time,value` 表头；`time` 保留原文本，`value` 要是有限数字。文件不存在、空文件、缺列、非数字都会在 stderr 给出错误，不会直接打印 traceback。
+
+样例共 60 行。原始数据的均值是 `50.431536666666666`，总体标准差是 `18.50327949328593`；清洗后有 57 行，去掉的时间是 `5.80`、`5.90` 和 `6.00`。这里先用**全部原始值**计算均值与标准差，再判断是否超过两倍标准差；等于边界的值保留。输出见 `cleaned_data.csv`。
+
+## 测试
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+8 个测试覆盖样例统计值、两侧离群值、时间和值的原样写出、默认和显式路径，以及几种错误输入。统计值还用 Python 标准库 `statistics` 独立核对过。
+
+## AI 使用说明
+
+这次用 Codex 辅助排查、修改脚本、写测试和整理问题报告；程序和测试已在 Ubuntu VM 上跑过。我还没有完成自己的逐行复核，答辩前需要自己再读代码，并能解释为什么标准差要平方后开方、为什么遍历时不能删列表元素。
+
+原始脚本和样例来自 [22SmartCar M0-3](https://github.com/Blake-John/22SmartCar/tree/main/round1/M0/M0-3)，原仓库为 Apache-2.0 许可证；许可证副本在 `../M0-2/LICENSE.upstream`。
