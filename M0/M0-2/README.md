@@ -53,7 +53,7 @@ r = 0.5634747254524841
 python3 -m unittest discover -s M0/M0-2/tests -v
 ```
 
-在 Ubuntu VM 上，10 个测试全部通过。测试包括正相关、负相关、空文件、缺列、零方差、非法数字，以及从其他目录指定配置文件。NumPy 可用时，测试还会用 `numpy.corrcoef` 比对样例结果；正式计算并没有调用 NumPy。另外，用一份新 YAML 和 CSV 得到 `r = -0.9523898764485159`，与 NumPy 的结果相同。
+在 Ubuntu VM 上，使用系统 `python3` 时 10 个测试全部通过；使用本仓库 `.venv/bin/python` 时，9 个通过、1 个 NumPy 比对测试跳过，因为虚拟环境没有装可选的 NumPy。测试包括正相关、负相关、空文件、缺列、零方差、非法数字，以及从其他目录指定配置文件。NumPy 可用时，测试还会用 `numpy.corrcoef` 比对样例结果；正式计算并没有调用 NumPy。另外，用一份新 YAML 和 CSV 得到 `r = -0.9523898764485159`，与 NumPy 的结果相同。
 
 ## AI 使用说明
 
