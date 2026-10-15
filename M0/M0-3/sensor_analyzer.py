@@ -32,7 +32,7 @@ print("=== 传感器数据分析 ===")
 reader = csv.DictReader(open(INPUT_FILE, "r"))
 
 for row in reader:
-    t = float(row["time"])
+    t = row["time"]
     v = float(row["value"])
     times.append(t)
     data.append(v)
@@ -52,17 +52,17 @@ for v in data:
 std = math.sqrt(acc / len(data))
 
 # --- 剔除离群值 ---
-for v in data:
-    if v > mean + 2 * std:
-        data.remove(v)
+for t, v in zip(times, data):
+    if abs(v - mean) <= 2 * std:
+        cleaned.append((t, v))
 
 # --- 输出清洗后的数据 ---
 output_path = OUTPUT_FILE
 f = open(output_path, "w")
 writer = csv.writer(f)
 writer.writerow(["time", "value"])
-for v in cleaned:
-    writer.writerow([v])
+for t, v in cleaned:
+    writer.writerow([t, v])
 
 print("均值 mean = %.4f" % mean)
 print("标准差 std = %.4f" % std)
